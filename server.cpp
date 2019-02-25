@@ -12,6 +12,7 @@
 #include "Poco/Util/ServerApplication.h"
 #include "Poco/Util/Option.h"
 #include "Poco/Util/OptionSet.h"
+#include "Poco/Util/IntValidator.h"
 #include "Poco/Util/HelpFormatter.h"
 #include <algorithm>
 #include <iostream>
@@ -20,7 +21,6 @@
 #include <unordered_map>
 #include <Poco/StreamCopier.h>
 #include "hamming_code.h"
-#include "hamming_code_word_size.h"
 
 
 using Poco::Net::ServerSocket;
@@ -68,7 +68,7 @@ public:
                 int fullBlocks = curPos / hammingCode.getBlockSize();
                 for (int blockIndex = 0; blockIndex < fullBlocks; blockIndex++) {
                     char *blockStart = buffer + (blockIndex * hammingCode.getBlockSize());
-                    std::bitset<hammingCode.getBlockSize()> block;
+                    std::bitset<FixedHammingCode::getBlockSize()> block;
                     for (int i = 0; i < hammingCode.getBlockSize(); i++) {
                         if (blockStart[i] != '1' && blockStart[i] != '0') {
                             throw Poco::Exception(std::string("unknown char: ") + std::to_string(blockStart[i]));
@@ -115,7 +115,7 @@ public:
     }
 
 private:
-    static constexpr HammingCode<wordSize> hammingCode = HammingCode<wordSize>();
+    const FixedHammingCode hammingCode;
     const int bufSize = 100000000;
     char *buffer;
     int curPos = 0;
@@ -154,28 +154,39 @@ protected:
         options.addOption(
             Option("help", "h", "display help information on command line arguments")
                 .required(false)
-                .repeatable(false));
+                .repeatable(false)
+                .binding("help"));
 
         options.addOption(
-            Option("bind", "b", "hostname to bind socket")
-                .required(false)
-                .repeatable(false));
+            Option("hostname", "H", "hostname to bind socket")
+                .required(true)
+                .repeatable(false)
+                .argument("<hostname>", true)
+                .binding("hostAddress"));
 
         options.addOption(
-            Option("file", "f", "file name prefix")
+            Option("port", "p", "port to listen")
                 .required(false)
                 .repeatable(false)
-                .argument("<file>", true));
+                .argument("<port>", true)
+                .binding("port")
+                .validator(new Poco::Util::IntValidator(0, (1 << 16) - 1)));
+
+        options.addOption(
+            Option("file", "f", "output file name; will be suffixed by connection id")
+                .required(false)
+                .repeatable(false)
+                .argument("<file>", true)
+                .binding("file"));
     }
 
     void handleOption(const std::string& name, const std::string& value)
     {
         ServerApplication::handleOption(name, value);
 
-        if (name == "help")
-            _helpRequested = true;
-        if (name == "file")
-            file = value;
+        if (name == "help") {
+            stopOptionsProcessing();
+        }
     }
 
     void displayHelp()
@@ -189,19 +200,21 @@ protected:
 
     int main(const std::vector<std::string>& args)
     {
-        if (_helpRequested)
+        auto& app = Application::instance();
+        if (config().hasOption("help"))
         {
             displayHelp();
         }
         else
         {
-            // get parameters from configuration file
-            unsigned short port = (unsigned short) config().getInt("HammingCodeClient.port", 9911);
+            auto hostAddress = config().getString("hostAddress");
+            unsigned short port = (unsigned short) config().getInt("port", 9911);
+            app.logger().information("will bind to %s:%hu", hostAddress, port);
 
             // set-up a server socket
-            ServerSocket svs(port);
+            ServerSocket svs(Poco::Net::SocketAddress(hostAddress, port));
             // set-up a TCPServer instance
-            TCPServer srv(new HammingCodeServerConnectionFactory(file), svs);
+            TCPServer srv(new HammingCodeServerConnectionFactory(config().getString("file")), svs);
             // start the TCPServer
             srv.start();
             // wait for CTRL-C or kill
@@ -213,8 +226,6 @@ protected:
     }
 
 private:
-    bool _helpRequested = false;
-    std::string file = "default_file";
 };
 
 

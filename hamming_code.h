@@ -1,3 +1,4 @@
+#pragma once
 //
 // Created by Yuriy Baranov on 2019-02-25.
 //
@@ -22,10 +23,23 @@ private:
         }
     }
 
-    static constexpr int parityBitsCount=getParityBitsCount(0) + 1;
-    static constexpr int blockSize=wordSize + parityBitsCount;
+    static constexpr int parityBitsCount = getParityBitsCount(0) + 1;
+    static constexpr int blockSize = wordSize + parityBitsCount;
 
+    std::vector<std::bitset<blockSize>> parityBitsMasks = std::vector((size_t) parityBitsCount - 1, std::bitset<blockSize>());
 public:
+    HammingCode() {
+        for (int i = 0; i < parityBitsCount - 1; i++) {
+            int sum = 0;
+            int parityBitMask = (1 << i);
+            for (int j = 0; j < blockSize; j++) {
+                if (j & parityBitMask) {
+                    parityBitsMasks[i][j] = 1;
+                }
+            }
+        }
+    }
+
     std::bitset<blockSize> encode(std::bitset<wordSize>& word) const {
         std::bitset<blockSize> block;
 
@@ -38,33 +52,16 @@ public:
         }
 
         for (int i = 0; i < parityBitsCount - 1; i++) {
-            int sum = 0;
-            int parityBitMask = (1 << i);
-            for (int j = 0; j < blockSize; j++) {
-                if (j & parityBitMask) {
-                    sum += block[j];
-                }
-            }
-            block[1 << i] = sum % 2;
+            block[1 << i] = (block & parityBitsMasks[i]).count() % 2;
         }
-
-        // overall parity bit
         block[0] = block.count() % 2;
-
         return block;
     }
 
     std::pair<std::bitset<wordSize>, int> decode(std::bitset<blockSize> block) const {
         std::bitset<parityBitsCount - 1> parity;
         for (int i = 0; i < parityBitsCount - 1; i++) {
-            int sum = 0;
-            int parityBitMask = (1 << i);
-            for (int j = 0; j < blockSize; j++) {
-                if (j & parityBitMask) {
-                    sum += block[j];
-                }
-            }
-            parity[i] = sum % 2;
+            parity[i] = (block & parityBitsMasks[i]).count() % 2;
         }
 
         int errorsCount = 0;
@@ -92,17 +89,18 @@ public:
         return std::make_pair(word, errorsCount);
     }
 
-    constexpr int getWordSize() const {
+    static constexpr int getWordSize() {
         return wordSize;
     }
 
-    constexpr int getParityBitsCount() const {
+    static constexpr int getParityBitsCount() {
         return parityBitsCount;
     }
 
-    constexpr int getBlockSize() const {
+    static constexpr int getBlockSize() {
         return blockSize;
     }
 };
 
-using HammingCode33 = HammingCode<33>;
+constexpr int wordSize = 33;
+using FixedHammingCode = HammingCode<wordSize>;

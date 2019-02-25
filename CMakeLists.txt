@@ -7,8 +7,8 @@ add_subdirectory(poco)
 set( Poco_DIR poco/Poco )
 find_package( Poco REQUIRED COMPONENTS Net Util JSON XML Foundation CONFIG )
 
-add_executable( server server.cpp hamming_code.h hamming_code_word_size.h)
-add_executable( client client.cpp hamming_code.h hamming_code_word_size.h)
+add_executable( server server.cpp hamming_code.h)
+add_executable( client client.cpp hamming_code.h)
 add_executable( test_hamming_code test_hamming_code.cpp )
 
 target_link_libraries( server PUBLIC Poco::Net Poco::Util Poco::JSON Poco::XML Poco::Foundation )
