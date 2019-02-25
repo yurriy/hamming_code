@@ -2,6 +2,9 @@
 // Created by Yuriy Baranov on 2019-02-25.
 //
 #include <Poco/Exception.h>
+#include <Poco/Logger.h>
+#include <Poco/ConsoleChannel.h>
+#include <Poco/Bugcheck.h>
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
@@ -11,13 +14,15 @@
 #include "hamming_code.h"
 
 
+Poco::Logger& logger = Poco::Logger::get("test_hamming_code");
+
 void test1() {
     constexpr int wordSize = 4;
     HammingCode<wordSize> h;
 
     auto msg = std::string("1011");
     std::reverse(msg.begin(), msg.end());
-    std::cout << "message: " << msg << std::endl;
+    logger.information("message: %s", msg);
     auto message = std::bitset<wordSize>(msg);
 
 
@@ -25,39 +30,26 @@ void test1() {
     auto encodedS = encoded.to_string();
     std::string correct = "00110011";
     std::reverse(correct.begin(), correct.end());
-    if (encodedS != correct) {
-        std::cout << "encoded != correct: " << encodedS << ' ' << correct << std::endl;
-        throw Poco::Exception("failed test 1");
-    }
 
-    std::cout << "test error count 0" << std::endl;
+    poco_assert_msg(encodedS == correct, Poco::format("encoded: %s, correct: %s", encodedS, correct).data());
+
+    logger.information("test error count 0");
     auto decodingResult = h.decode(encoded);
     auto decoded = decodingResult.first;
-    if (decodingResult.second != 0) {
-        std::cout << "wrong detected error count != 0: " << decodingResult.second << std::endl;
-        throw Poco::Exception("failed test 1");
-    }
-    if (decoded != message) {
-        std::cout << "decoded != message: " << decoded << ' ' << message << std::endl;
-        throw Poco::Exception("failed test 1");
-    }
 
-    std::cout << "test error count 1" << std::endl;
+    poco_assert_msg(decodingResult.second == 0, Poco::format("detected error count: %d", decodingResult.second).data());
+    poco_assert_msg(decoded == message, Poco::format("decoded: %s, message: %s", decoded, message).data());
+
+    logger.information("test error count 1");
     for (size_t i = 0; i < h.getBlockSize(); i++) {
         auto encodedWithOneError = encoded;
         encodedWithOneError.flip(i);
         decodingResult = h.decode(encodedWithOneError);
-        if (decodingResult.second != 1) {
-            std::cout << "wrong detected error count != 1: " << decodingResult.second << std::endl;
-            throw Poco::Exception("failed test 1");
-        }
-        if (decodingResult.first != message) {
-            std::cout << "decoded != message: " << decoded << ' ' << message << std::endl;
-            throw Poco::Exception("failed test 1");
-        }
+        poco_assert_msg(decodingResult.second == 1, Poco::format("detected error count %d", decodingResult.second).data());
+        poco_assert_msg(decodingResult.first == message, Poco::format("decoded: %s, message: %s", decodingResult.first, message).data());
     }
 
-    std::cout << "test error count 2" << std::endl;
+    logger.information("test error count 2");
     for (size_t i = 0; i < h.getBlockSize(); i++) {
         for (size_t j = 0; j < h.getBlockSize(); j++) {
             if (i == j) continue;
@@ -65,14 +57,10 @@ void test1() {
             encodedWithTwoErrors.flip(i);
             encodedWithTwoErrors.flip(j);
             decodingResult = h.decode(encodedWithTwoErrors);
-            if (decodingResult.second != 2) {
-                std::cout << "wrong detected error count != 2: " << decodingResult.second << std::endl;
-                throw Poco::Exception("failed test 1");
-            }
+            poco_assert_msg(decodingResult.second == 2, Poco::format("detected error count %d", decodingResult.second).data());
         }
     }
-
-    std::cout << "passed test 1" << std::endl;
+    logger.information("passed test 1");
 }
 
 template <int wordSize>
@@ -88,32 +76,20 @@ template <int wordSize>
 void randomTest(HammingCode<wordSize>& h) {
     auto message = randomBitSet<wordSize>();
 
-    auto errorText = std::string("failed random test for ") + message.to_string();
+    auto errorText = Poco::format("failed random test for %s", message.to_string());
     auto encoded = h.encode(message);
     auto decodingResult = h.decode(encoded);
     auto decoded = decodingResult.first;
 
-    if (decodingResult.second != 0) {
-        std::cout << "wrong detected error count != 0: " << decodingResult.second << std::endl;
-        throw Poco::Exception(errorText);
-    }
-    if (decoded != message) {
-        std::cout << "for error count 0 decoded != message" << std::endl;
-        throw Poco::Exception(errorText);
-    }
+    poco_assert_msg(decodingResult.second == 0, Poco::format("detected error count: %d", decodingResult.second).data());
+    poco_assert_msg(decoded == message, Poco::format("decoded: %s, message: %s", decoded, message).data());
 
     for (size_t i = 0; i < h.getBlockSize(); i++) {
         auto encodedWithOneError = encoded;
         encodedWithOneError.flip(i);
         decodingResult = h.decode(encodedWithOneError);
-        if (decodingResult.second != 1) {
-            std::cout << "wrong detected error count != 1: " << decodingResult.second << std::endl;
-            throw Poco::Exception(errorText);
-        }
-        if (decodingResult.first != message) {
-            std::cout << "for error count 1  decoded != message" << std::endl;
-            throw Poco::Exception(errorText);
-        }
+        poco_assert_msg(decodingResult.second == 1, Poco::format("detected error count %d", decodingResult.second).data());
+        poco_assert_msg(decodingResult.first == message, Poco::format("decoded: %s, message: %s", decodingResult.first, message).data());
     }
 
     for (size_t i = 0; i < 100; i++) {
@@ -125,17 +101,14 @@ void randomTest(HammingCode<wordSize>& h) {
         encodedWithTwoErrors.flip(pos1);
         encodedWithTwoErrors.flip(pos2);
         decodingResult = h.decode(encodedWithTwoErrors);
-        if (decodingResult.second != 2) {
-            std::cout << "wrong detected error count != 2: " << decodingResult.second << std::endl;
-            throw Poco::Exception(errorText);
-        }
+        poco_assert_msg(decodingResult.second == 2, Poco::format("detected error count %d", decodingResult.second).data());
     }
 }
 
 template <int wordSize>
 void randomTest() {
     HammingCode<wordSize> h;
-    const int N = 10;
+    const int N = 100;
     for (int i = 0; i < N; i++) {
         randomTest(h);
     }
@@ -178,7 +151,7 @@ void stressTest() {
     randomTest<31>();
     randomTest<100>();
     randomTest<500>();
-    std::cout << "passed stress test" << std::endl;
+    logger.information("passed stress test");
 }
 
 template <int wordSize>
@@ -218,6 +191,7 @@ void getManyErrorsDetectionRatio() {
 }
 
 int main() {
+    logger.setChannel(new Poco::ConsoleChannel(std::cout));
     test1();
     stressTest();
     getManyErrorsDetectionRatio<4>();

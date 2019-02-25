@@ -58,7 +58,7 @@ public:
         Application& app = Application::instance();
         std::string result;
         StreamSocket& ss = socket();
-        std::unordered_map<int, int> detectedErrors;
+        std::unordered_map<int, int> detected;
         try
         {
             int n = ss.receiveBytes(buffer, bufSize);
@@ -71,15 +71,15 @@ public:
                     std::bitset<FixedHammingCode::getBlockSize()> block;
                     for (int i = 0; i < hammingCode.getBlockSize(); i++) {
                         if (blockStart[i] != '1' && blockStart[i] != '0') {
-                            throw Poco::Exception(std::string("unknown char: ") + std::to_string(blockStart[i]));
+                            throw Poco::Exception(Poco::format("unknown char: %c", blockStart[i]));
                         }
                         block[i] = blockStart[i] == '1';
                     }
-                    app.logger().debug(std::string("decoding block ") + block.to_string() + " at " + std::to_string(curPos));
+                    app.logger().debug("decoding block %s at %d", block.to_string(), curPos);
                     auto decodingResult = hammingCode.decode(block);
                     auto word = decodingResult.first.to_string();
-                    app.logger().debug(std::string("decoded to ") + word);
-                    detectedErrors[decodingResult.second] += 1;
+                    app.logger().debug("decoded to %s", word);
+                    detected[decodingResult.second] += 1;
                     std::reverse(word.begin(), word.end());
                     result += word;
                 }
@@ -90,12 +90,10 @@ public:
                 curPos %= hammingCode.getBlockSize();
                 n = ss.receiveBytes(buffer + curPos, bufSize - curPos);
             }
-            app.logger().information(std::string("detected single errors: ") + std::to_string(detectedErrors[1]));
-            app.logger().information(std::string("detected double errors: ") + std::to_string(detectedErrors[2]));
-            app.logger().information(std::string("detected many errors: ") + std::to_string(detectedErrors[-1]));
+            app.logger().information("detected errors: %d single, %d double, %d many", detected[1], detected[2], detected[-1]);
 
-            app.logger().debug(std::string("decoded result size: ") + std::to_string(result.length()));
-            app.logger().debug(std::string("decoded result: ") + result);
+            app.logger().debug("decoded result size: %ull", result.length());
+            app.logger().debug("decoded result: %s", result);
             std::string binaryResult;
             for (size_t i = 0; i < result.length() / 8; i++) {
                 auto c = result.substr(i * 8, 8);
@@ -104,7 +102,7 @@ public:
                 binaryResult.push_back((char) cc.to_ulong());
             }
             auto filename = file + std::to_string(connectionId);
-            app.logger().information(std::string("writing decoded message to ") + filename);
+            app.logger().information("writing decoded message to %s", filename);
             std::ofstream of(filename);
             of.write(binaryResult.data(), binaryResult.length());
         }
@@ -128,12 +126,12 @@ class HammingCodeServerConnectionFactory: public TCPServerConnectionFactory
     /// A factory for HammingCodeServerConnection.
 {
 public:
-    HammingCodeServerConnectionFactory(const std::string& file): file(file) {
+    explicit HammingCodeServerConnectionFactory(const std::string& file): file(file) {
     }
 
-    TCPServerConnection* createConnection(const StreamSocket& socket)
+    TCPServerConnection* createConnection(const StreamSocket& socket) final
     {
-        return new HammingCodeServerConnection(socket, file, lastConnectionId++);
+        return (TCPServerConnection *) new HammingCodeServerConnection(socket, file, lastConnectionId++);
     }
 
 private:

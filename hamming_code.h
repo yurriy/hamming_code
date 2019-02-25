@@ -102,5 +102,5 @@ public:
     }
 };
 
-constexpr int wordSize = 33;
+constexpr int wordSize = 34;
 using FixedHammingCode = HammingCode<wordSize>;
