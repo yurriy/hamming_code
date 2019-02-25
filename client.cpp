@@ -113,7 +113,6 @@ protected:
             unsigned short port = (unsigned short) config().getInt("port", 9911);
 
             app.logger().information("connecting to %s:%hu", hostname, port);
-
             StreamSocket socket(SocketAddress(hostname, port));
 
             auto filename = config().getString("file");
@@ -123,9 +122,21 @@ protected:
             buffer << messageFile.rdbuf();
             auto encoded = encodeMessage(buffer.str());
 
-            app.logger().debug("sending %s", encoded);
-            int n = socket.sendBytes(encoded.data(), (int) encoded.length());
-            app.logger().information("sent %d", n);
+            app.logger().debug("sending %d bytes", encoded.length());
+            size_t cur = 0;
+            while (cur != encoded.length()) {
+                cur += socket.sendBytes(encoded.data() + cur, encoded.length() - cur);
+            }
+            std::cout << "send finished" << std::endl;
+            socket.shutdownSend();
+            char serverAnswer[1000];
+            cur = 0;
+            int n = socket.receiveBytes(serverAnswer + cur, sizeof(serverAnswer) - cur);
+            while (n > 0) {
+                cur += n;
+                n = socket.receiveBytes(serverAnswer + cur, sizeof(serverAnswer) - cur);
+            }
+            app.logger().information("server answer: %s", std::string(serverAnswer, cur));
         }
         return Application::EXIT_OK;
     }
@@ -142,12 +153,15 @@ protected:
         for (int i = 0; i < tail; i++) {
             textMessage.push_back('0');
         }
-        Application::instance().logger().debug("text message: %s", textMessage);
+
+        std::string tailSizeBlock = std::bitset<wordSize>(tail).to_string();
+        std::reverse(tailSizeBlock.begin(), tailSizeBlock.end());
+        textMessage += tailSizeBlock;
+
         std::string encoded;
-        for (int i = 0; i < textMessage.length() / wordSize; i++) {
+        for (size_t i = 0; i < textMessage.length() / wordSize; i++) {
             auto word = textMessage.substr(i * wordSize, wordSize);
             std::reverse(word.begin(), word.end());
-            Application::instance().logger().debug("word: %s", word);
             std::bitset<wordSize> b(word);
             auto result = hammingCode.encode(b);
             for (int j = 0; j < config().getInt("errors", 0); j++) {
@@ -155,7 +169,6 @@ protected:
                 result.flip(pos);
             }
             auto encodedWord = result.to_string();
-            Application::instance().logger().debug("encoded block: %s", encodedWord);
             std::reverse(encodedWord.begin(), encodedWord.end());
             encoded += encodedWord;
         }

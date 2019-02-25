@@ -149,6 +149,15 @@ void stressTest() {
     randomTest<29>();
     randomTest<30>();
     randomTest<31>();
+    randomTest<32>();
+    randomTest<33>();
+    randomTest<34>();
+    randomTest<35>();
+    randomTest<36>();
+    randomTest<37>();
+    randomTest<38>();
+    randomTest<39>();
+    randomTest<40>();
     randomTest<100>();
     randomTest<500>();
     logger.information("passed stress test");
@@ -197,6 +206,6 @@ int main() {
     getManyErrorsDetectionRatio<4>();
     getManyErrorsDetectionRatio<5>();
     getManyErrorsDetectionRatio<25>();
-    getManyErrorsDetectionRatio<33>();
+    getManyErrorsDetectionRatio<34>();
     getManyErrorsDetectionRatio<100>();
 }

@@ -56,60 +56,85 @@ public:
     void run()
     {
         Application& app = Application::instance();
-        std::string result;
-        StreamSocket& ss = socket();
-        std::unordered_map<int, int> detected;
         try
         {
-            int n = ss.receiveBytes(buffer, bufSize);
+            int n = socket().receiveBytes(buffer, bufSize);
             while (n > 0)
             {
                 curPos += n;
-                int fullBlocks = curPos / hammingCode.getBlockSize();
-                for (int blockIndex = 0; blockIndex < fullBlocks; blockIndex++) {
-                    char *blockStart = buffer + (blockIndex * hammingCode.getBlockSize());
-                    std::bitset<FixedHammingCode::getBlockSize()> block;
-                    for (int i = 0; i < hammingCode.getBlockSize(); i++) {
-                        if (blockStart[i] != '1' && blockStart[i] != '0') {
-                            throw Poco::Exception(Poco::format("unknown char: %c", blockStart[i]));
-                        }
-                        block[i] = blockStart[i] == '1';
-                    }
-                    app.logger().debug("decoding block %s at %d", block.to_string(), curPos);
-                    auto decodingResult = hammingCode.decode(block);
-                    auto word = decodingResult.first.to_string();
-                    app.logger().debug("decoded to %s", word);
-                    detected[decodingResult.second] += 1;
-                    std::reverse(word.begin(), word.end());
-                    result += word;
-                }
-                int decodedSize = fullBlocks * hammingCode.getBlockSize();
-                for (int i = 0; i < curPos % hammingCode.getBlockSize(); i++) {
-                    buffer[i] = buffer[decodedSize + i];
-                }
-                curPos %= hammingCode.getBlockSize();
-                n = ss.receiveBytes(buffer + curPos, bufSize - curPos);
+                decodeAvailableBlocks();
+                n = socket().receiveBytes(buffer + curPos, bufSize - curPos);
             }
-            app.logger().information("detected errors: %d single, %d double, %d many", detected[1], detected[2], detected[-1]);
-
-            app.logger().debug("decoded result size: %ull", result.length());
-            app.logger().debug("decoded result: %s", result);
-            std::string binaryResult;
-            for (size_t i = 0; i < result.length() / 8; i++) {
-                auto c = result.substr(i * 8, 8);
-                reverse(c.begin(), c.end());
-                std::bitset<8> cc(c);
-                binaryResult.push_back((char) cc.to_ulong());
+            std::string stat = Poco::format("detected errors: %d single, %d double, %d many", detected[1], detected[2], detected[-1]);
+            app.logger().information("decoded message size: %z", decodedMessage.length());
+            app.logger().information(stat);
+            writeResult();
+            std::cout << "written result" << std::endl;
+            app.logger().information("will send answer %s", stat);
+            int cur = 0;
+            while (cur != stat.length()) {
+                cur += socket().sendBytes(stat.data() + cur, stat.length() - cur);
             }
-            auto filename = file + std::to_string(connectionId);
-            app.logger().information("writing decoded message to %s", filename);
-            std::ofstream of(filename);
-            of.write(binaryResult.data(), binaryResult.length());
+            app.logger().information("sent answer to connection %d", connectionId);
         }
         catch (Poco::Exception& exc)
         {
             std::cerr << "ClientConnection: " << exc.displayText() << std::endl;
         }
+    }
+
+    void decodeAvailableBlocks() {
+        Application& app = Application::instance();
+        int fullBlocks = curPos / hammingCode.getBlockSize();
+        for (int blockIndex = 0; blockIndex < fullBlocks; blockIndex++) {
+            char *blockStart = buffer + (blockIndex * hammingCode.getBlockSize());
+            std::bitset<FixedHammingCode::getBlockSize()> block;
+            for (int i = 0; i < hammingCode.getBlockSize(); i++) {
+                if (blockStart[i] != '1' && blockStart[i] != '0') {
+                    throw Poco::Exception(Poco::format("unknown char: %c", blockStart[i]));
+                }
+                block[i] = blockStart[i] == '1';
+            }
+            app.logger().debug("decoding block %s at %d", block.to_string(), curPos);
+            auto decodingResult = hammingCode.decode(block);
+            auto word = decodingResult.first.to_string();
+            app.logger().debug("decoded to %s", word);
+            detected[decodingResult.second] += 1;
+            std::reverse(word.begin(), word.end());
+            decodedMessage += word;
+        }
+        int decodedSize = fullBlocks * hammingCode.getBlockSize();
+        for (int i = 0; i < curPos % hammingCode.getBlockSize(); i++) {
+            buffer[i] = buffer[decodedSize + i];
+        }
+        curPos %= hammingCode.getBlockSize();
+    }
+
+    void writeResult() {
+        Application& app = Application::instance();
+        std::string binaryResult;
+        auto lastWord = decodedMessage.substr(decodedMessage.length() - wordSize);
+        std::reverse(lastWord.begin(), lastWord.end());
+        std::bitset<wordSize> tailSizeWord(lastWord);
+        size_t tailSize = tailSizeWord.to_ulong();
+        app.logger().information("tail size: %z", tailSize);
+        if (tailSize > wordSize - 1) {
+            app.logger().information("bad tail size: %z", tailSize);
+            tailSize = 0;
+        }
+
+        for (size_t i = 0; i < (decodedMessage.length() - tailSize - wordSize) / 8; i++) {
+            auto c = decodedMessage.substr(i * 8, 8);
+            reverse(c.begin(), c.end());
+            std::bitset<8> cc(c);
+            binaryResult.push_back((char) cc.to_ulong());
+        }
+
+        auto filename = Poco::format("%s_%d.txt", file, connectionId);
+        app.logger().information("writing decoded message of size %z to %s", binaryResult.length(), filename);
+        std::ofstream of(filename);
+        of.write(binaryResult.data(), binaryResult.length());
+        of.close();
     }
 
 private:
@@ -119,6 +144,9 @@ private:
     int curPos = 0;
     const std::string& file;
     const int connectionId;
+    std::string decodedMessage;
+    size_t messageLength;
+    std::unordered_map<int, int> detected;
 };
 
 
@@ -171,7 +199,7 @@ protected:
                 .validator(new Poco::Util::IntValidator(0, (1 << 16) - 1)));
 
         options.addOption(
-            Option("file", "f", "output file name; will be suffixed by connection id")
+            Option("file", "f", "output file name; connection id will be appended")
                 .required(false)
                 .repeatable(false)
                 .argument("<file>", true)
@@ -192,7 +220,7 @@ protected:
         HelpFormatter helpFormatter(options());
         helpFormatter.setCommand(commandName());
         helpFormatter.setUsage("OPTIONS");
-        helpFormatter.setHeader("A server application that uses Hamming Code.");
+        helpFormatter.setHeader("A server application that uses Hamming code.");
         helpFormatter.format(std::cout);
     }
 
