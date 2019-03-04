@@ -26,7 +26,7 @@ private:
     static constexpr int parityBitsCount = getParityBitsCount(0) + 1;
     static constexpr int blockSize = wordSize + parityBitsCount;
 
-    std::vector<std::bitset<blockSize>> parityBitsMasks = std::vector((size_t) parityBitsCount - 1, std::bitset<blockSize>());
+    std::vector<std::bitset<blockSize>> parityBitsMasks = std::vector<std::bitset<blockSize>>((size_t) parityBitsCount - 1, std::bitset<blockSize>());
 public:
     HammingCode() {
         for (int i = 0; i < parityBitsCount - 1; i++) {
